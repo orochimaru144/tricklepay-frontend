@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { parseHumanAmount, withdrawalAmountError } from "@/lib/amount";
 
 // 10 tokens of withdrawable balance, in 7-decimal base units.

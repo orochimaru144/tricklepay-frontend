@@ -1,11 +1,17 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+import type { JSX } from "react";
 
 // Next's file-based 404: renders for any URL that matches no route, or
 // wherever a Server Component calls `notFound()`. Distinct from the
 // stream-specific "not found" branch in app/streams/[id]/page.tsx, which
 // handles a missing stream id within an otherwise-valid route and needs its
 // own retry/back affordances rather than this generic one.
-export default function NotFound() {
+export const metadata: Metadata = {
+  title: "Page not found",
+};
+
+export default function NotFound(): JSX.Element {
   return (
     <main id="main-content" className="mx-auto max-w-2xl px-6 py-16 text-center">
       <p className="font-mono text-sm text-neutral-500">404</p>

@@ -1,27 +1,25 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
   getAddress,
   getNetwork,
   isAllowed,
   isConnected,
   requestAccess,
+  WatchWalletChanges,
 } from "@stellar/freighter-api";
-
-export interface WalletState {
-  address: string | null;
-  network: string | null;
-  connecting: boolean;
-  error: string | null;
-  connect: () => Promise<void>;
-  disconnect: () => void;
-}
+import { type JSX, createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 import { normalizeNetwork } from "@/lib/wallet-utils";
-export { normalizeNetwork };
+import type { WalletState } from "@/types/wallet";
 
-const WalletContext = createContext<WalletState | null>(null);
+// Exported so a test can render `<WalletContext.Provider>` directly and
+// confirm useWallet() reads through it — see wallet-provider.test.tsx.
+export const WalletContext = createContext<WalletState | null>(null);
+
+// How often Freighter is polled for an account or network switch while a
+// session is open. Freighter emits no events, so polling is the only option.
+export const WALLET_WATCH_INTERVAL_MS = 3000;
 
 /**
  * Owns the single wallet session for the whole app. This provider centralizes
@@ -50,7 +48,7 @@ const WalletContext = createContext<WalletState | null>(null);
  * 
  * @param children - The app tree that needs wallet state.
  */
-export function WalletProvider({ children }: { children: React.ReactNode }) {
+export function WalletProvider({ children }: { children: React.ReactNode }): JSX.Element {
   const [address, setAddress] = useState<string | null>(null);
   const [network, setNetwork] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
@@ -79,6 +77,25 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, []);
+
+  // Follow account and network switches made in Freighter while connected, so
+  // every consumer moves to the new account without a reload. Only runs while
+  // a session is open: after an in-app disconnect the app stays disconnected
+  // even though Freighter itself still reports the account. An empty address
+  // (a locked wallet) or an error is ignored rather than treated as a switch.
+  useEffect(() => {
+    if (!address) return;
+    const watcher = new WatchWalletChanges(WALLET_WATCH_INTERVAL_MS);
+    watcher.watch(({ address: next, network: net, error: watchError }) => {
+      if (watchError || !next) return;
+      // Keeps the connected address current so every consumer (badge, role-based
+      // controls, stream lists) moves to the new account immediately after a
+      // Freighter account switch, instead of acting on the previous one (#403).
+      setAddress(next);
+      if (net) setNetwork(normalizeNetwork(net));
+    });
+    return () => watcher.stop();
+  }, [address]);
 
   const connect = useCallback(async () => {
     setConnecting(true);

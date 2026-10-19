@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+
 import { listStreams, getStream, isAbortError } from "./api";
 
 // A fetch stand-in that never resolves on its own and rejects the way a real

@@ -1,21 +1,43 @@
+"use client";
+
 import React from "react";
+
+import { useUserAgent } from "@/hooks/use-user-agent";
+import { shouldShowBrowserSupportNote } from "@/lib/browser-support";
 
 export interface BrowserSupportNoteProps {
   /** Additional CSS classes to apply to the component. Defaults to empty string. */
   className?: string;
   /** When true, renders a condensed single-line version. When false, displays full note with icon. Defaults to false. */
   compact?: boolean;
+  /**
+   * User agent to check instead of the visitor's own. Leave unset in the app so
+   * the note reflects the browser actually in use; it exists so tests and
+   * previews can render the note for a specific browser.
+   */
+  userAgent?: string;
 }
 
 /**
  * An accessible note informing users about browser and wallet extension compatibility.
  * TricklePay connects to the Stellar network using the Freighter wallet extension,
  * available on modern desktop browsers (Chrome, Brave, Firefox, and Microsoft Edge).
+ *
+ * It renders only for a browser the extension can't run in (see
+ * `shouldShowBrowserSupportNote`) and renders nothing for a supported one, or
+ * until the browser is known, so it never flashes for the common case.
  */
 export function BrowserSupportNote({
   className = "",
   compact = false,
-}: BrowserSupportNoteProps) {
+  userAgent,
+}: BrowserSupportNoteProps): React.JSX.Element | null {
+  const detectedUserAgent = useUserAgent();
+
+  if (!shouldShowBrowserSupportNote(userAgent ?? detectedUserAgent)) {
+    return null;
+  }
+
   if (compact) {
     return (
       <div

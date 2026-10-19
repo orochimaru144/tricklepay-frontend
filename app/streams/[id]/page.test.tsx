@@ -1,11 +1,13 @@
+import type { ReactNode } from "react";
 import { describe, it, expect, vi } from "vitest";
 
 vi.mock("react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react")>();
   return {
     ...actual,
-    useState: (initial: any) => [initial, vi.fn()],
+    useState: (initial: unknown) => [initial, vi.fn()],
     useEffect: vi.fn(),
+    useRef: (initial: unknown) => ({ current: initial }),
   };
 });
 
@@ -18,18 +20,19 @@ vi.mock("@/hooks/use-accrual", () => ({
 }));
 
 vi.mock("next/link", () => ({
-  default: ({ children }: any) => <a>{children}</a>,
+  default: ({ children }: { children: ReactNode }) => <a>{children}</a>,
 }));
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "123" }),
+  useRouter: () => ({ back: vi.fn() }),
 }));
 
 vi.mock("@/components/stream-actions", () => ({
   StreamActions: () => <div>StreamActions</div>,
 }));
 
-import { StreamDetail } from "./page";
+import { StreamDetail } from "@/components/stream-detail";
 import { formatTime } from "@/lib/format";
 import { formatUtcFromUnixSeconds } from "@/lib/timezone";
 import type { StreamView } from "@/types/stream";

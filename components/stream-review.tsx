@@ -1,14 +1,22 @@
 "use client";
 
-import type { CreateStreamParams } from "@/lib/contract";
-import { formatAmount, formatDuration, formatTime, truncateAddress } from "@/lib/format";
-import { vestingRatePerDay } from "@/lib/vesting";
-import { formatUtcFromUnixSeconds, resolvedTimeZoneLabel } from "@/lib/timezone";
+import type { JSX, ReactNode } from "react";
+
 import { CopyButton } from "@/components/copy-button";
+import { TokenDisplay } from "@/components/token-display";
+import { formatAmount, formatDuration, formatTokenAmount, formatTokenRate, truncateAddress } from "@/lib/format";
+import { formatSchedule, NO_CLIFF_LABEL, type ScheduleMoment } from "@/lib/schedule";
+import { resolvedTimeZoneLabel } from "@/lib/timezone";
+import { vestingRatePerDay } from "@/lib/vesting";
+import type { BalanceCheck, CreateStreamParams, FeeEstimate } from "@/types/contract";
 
 interface Props {
   /** The exact parameters that will be submitted on confirm. */
   params: CreateStreamParams;
+  /** Best-effort network-fee estimate; never blocks confirming. */
+  feeEstimate: FeeEstimate;
+  /** Best-effort read of the sender's token balance; never blocks confirming. */
+  balanceCheck: BalanceCheck;
   submitting: boolean;
   onBack: () => void;
   onConfirm: () => void;
@@ -22,7 +30,7 @@ function Row({
   children,
 }: {
   label: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-0.5 py-2 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
@@ -43,27 +51,71 @@ function AddressRow({ label, address }: { label: string; address: string }) {
   );
 }
 
+function TokenContractRow({ token }: { token: string }) {
+  return (
+    <Row label="Token contract">
+      <span className="inline-flex items-baseline gap-2">
+        <TokenDisplay token={token} />
+        <CopyButton value={token} label="token contract" />
+      </span>
+    </Row>
+  );
+}
+
 // A Start/End/Cliff row, with the UTC equivalent echoed underneath in muted
 // text — this is the last screen before signing, so it's the most
 // consequential place to remove any doubt about which instant a local time
-// actually resolves to.
-function TimeRow({ label, unixSeconds }: { label: string; unixSeconds: bigint }) {
+// actually resolves to. The countdown pill shows how long until the moment
+// while the absolute local + UTC times stay visible.
+function TimeRow({ label, moment }: { label: string; moment: ScheduleMoment }) {
   return (
     <Row label={label}>
       <div className="flex flex-col items-start gap-0.5 sm:items-end">
-        <span>{formatTime(unixSeconds.toString())}</span>
-        <span className="text-xs font-normal text-neutral-500">
-          {formatUtcFromUnixSeconds(unixSeconds.toString())}
+        <span className="inline-flex flex-wrap items-center gap-2">
+          <span>{moment.local}</span>
+          <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] font-normal leading-none text-neutral-400">
+            {moment.countdown}
+          </span>
         </span>
+        <span className="text-xs font-normal text-neutral-500">{moment.utc}</span>
       </div>
     </Row>
   );
 }
 
+// The estimated network fee in the network's native currency (XLM, the fee
+// asset on Stellar). The label marks it as an estimate; a failed estimate is
+// reported but never blocks confirming, because signing does not depend on it.
+function feeEstimateText(feeEstimate: FeeEstimate): string {
+  switch (feeEstimate.status) {
+    case "ready":
+      return `~${formatAmount(feeEstimate.stroops.toString())} XLM`;
+    case "loading":
+      return "Estimating…";
+    case "unavailable":
+      return "Could not estimate — you can still continue";
+  }
+}
+
+// The sender's token balance, read before signing so a shortfall is visible
+// alongside the amount. A failed read says so without blocking the flow.
+function balanceText(balanceCheck: BalanceCheck, token: string): string {
+  switch (balanceCheck.status) {
+    case "ready":
+      return formatTokenAmount(balanceCheck.balance.toString(), token);
+    case "loading":
+      return "Checking…";
+    case "unavailable":
+      return "Could not read — you can still continue";
+  }
+}
+
 // The confirmation step between filling the create form and signing. Renders
 // the same CreateStreamParams instance the confirm handler passes to
 // createStream, so what the user reviews is exactly what goes on-chain.
-export function StreamReview({ params, submitting, onBack, onConfirm }: Props) {
+export function StreamReview({ params, feeEstimate, balanceCheck, submitting, onBack, onConfirm }: Props): JSX.Element {
+  const schedule = formatSchedule(params);
+
   return (
     <section aria-labelledby="review-heading" className="flex flex-col gap-4">
       <div className="rounded-lg border border-neutral-800 bg-neutral-900/60 p-4">
@@ -81,24 +133,39 @@ export function StreamReview({ params, submitting, onBack, onConfirm }: Props) {
         <dl className="divide-y divide-neutral-800">
           <AddressRow label="Sender" address={params.sender} />
           <AddressRow label="Recipient" address={params.recipient} />
-          <AddressRow label="Token contract" address={params.token} />
+          <TokenContractRow token={params.token} />
           <Row label="Amount">
-            {formatAmount(params.totalAmount.toString())}
+            {formatTokenAmount(params.totalAmount.toString(), params.token)}
           </Row>
+          <Row label="Your balance">{balanceText(balanceCheck, params.token)}</Row>
           <Row label="Vesting rate">
-            {`${formatAmount(vestingRatePerDay(params.totalAmount, params.startTime, params.endTime)?.toString() ?? "0")} tokens/day`}
+            {formatTokenRate(
+              vestingRatePerDay(params.totalAmount, params.startTime, params.endTime)?.toString() ?? "0",
+              params.token,
+            )}
           </Row>
           <Row label="Duration">
             {formatDuration(params.endTime - params.startTime) ?? "—"}
           </Row>
-          <TimeRow label="Start" unixSeconds={params.startTime} />
-          <TimeRow label="End" unixSeconds={params.endTime} />
-          {params.cliffTime === params.startTime ? (
-            <Row label="Cliff">None (streams from the start)</Row>
+          <TimeRow label="Start" moment={schedule.start} />
+          <TimeRow label="End" moment={schedule.end} />
+          {schedule.cliff ? (
+            <TimeRow label="Cliff" moment={schedule.cliff} />
           ) : (
-            <TimeRow label="Cliff" unixSeconds={params.cliffTime} />
+            <Row label="Cliff">{NO_CLIFF_LABEL}</Row>
           )}
+          <Row label="Network fee (estimated)">{feeEstimateText(feeEstimate)}</Row>
         </dl>
+        {balanceCheck.status === "ready" && balanceCheck.shortfall !== null && (
+          <p
+            role="alert"
+            className="mt-3 rounded border border-amber-800/60 bg-amber-950/40 px-3 py-2 text-xs text-amber-200"
+          >
+            You hold {formatTokenAmount(balanceCheck.balance.toString(), params.token)}, this stream
+            needs {formatTokenAmount(params.totalAmount.toString(), params.token)} — short by{" "}
+            {formatTokenAmount(balanceCheck.shortfall.toString(), params.token)}.
+          </p>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-3">
@@ -114,9 +181,10 @@ export function StreamReview({ params, submitting, onBack, onConfirm }: Props) {
           type="button"
           onClick={onConfirm}
           disabled={submitting}
+          aria-busy={submitting}
           className="rounded bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-900 hover:bg-neutral-200 disabled:opacity-50"
         >
-          Confirm &amp; create
+          {submitting ? "Creating…" : "Confirm & create"}
         </button>
       </div>
     </section>

@@ -12,8 +12,9 @@ vi.mock("@/lib/config", () => ({
   config: { network: "testnet" },
 }));
 
-import { useNetworkGuard } from "./use-network-guard";
 import { useWallet } from "@/components/wallet-provider";
+
+import { useNetworkGuard } from "./use-network-guard";
 
 afterEach(() => {
   vi.restoreAllMocks();

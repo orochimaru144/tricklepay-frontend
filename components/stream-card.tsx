@@ -1,37 +1,32 @@
 import Link from "next/link";
-import type { StreamStatus, StreamView } from "@/types/stream";
-import { formatAmount, timeRemaining, truncateAddress } from "@/lib/format";
+import type { JSX } from "react";
 
-const STATUS_STYLES: Record<StreamStatus, string> = {
-  pending: "border border-neutral-700 bg-neutral-800 text-neutral-300",
-  streaming: "border border-green-700/50 bg-green-950/40 text-green-300",
-  completed: "border border-blue-700/50 bg-blue-950/40 text-blue-300",
-  cancelled: "border border-red-700/50 bg-red-950/40 text-red-300",
-};
+import { StreamStatusBadge } from "@/components/stream-status-badge";
+import { formatTokenAmount, truncateAddress } from "@/lib/format";
+import { formatRemaining, formatSchedule } from "@/lib/schedule";
+import { markNavigatingToStream } from "@/lib/scroll";
+import type { StreamView } from "@/types/stream";
 
-const STATUS_ICONS: Record<StreamStatus, string> = {
-  pending: "⏳",
-  streaming: "●",
-  completed: "✓",
-  cancelled: "✕",
-};
+export function StreamCard({ stream }: { stream: StreamView }): JSX.Element {
+  const remaining = formatRemaining(stream);
+  // Only a cliff strictly after the start is worth a row; one at or before it
+  // changes nothing about when withdrawals begin.
+  const cliff =
+    BigInt(stream.cliffTime) > BigInt(stream.startTime) ? formatSchedule(stream).cliff : null;
 
-export function StreamCard({ stream }: { stream: StreamView }) {
   return (
     <Link
       href={`/streams/${stream.id}`}
+      onClick={() => {
+        if (typeof window !== "undefined") {
+          markNavigatingToStream(window.location.search);
+        }
+      }}
       className="block rounded-lg border border-neutral-800 bg-neutral-950 p-4 hover:border-neutral-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-offset-2"
     >
       <div className="mb-3 flex items-center justify-between">
         <span className="font-mono text-sm text-neutral-300">#{stream.id}</span>
-        <span
-          className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium capitalize ${STATUS_STYLES[stream.status]}`}
-        >
-          <span aria-hidden="true" className="text-[10px]">
-            {STATUS_ICONS[stream.status]}
-          </span>
-          <span>{stream.status}</span>
-        </span>
+        <StreamStatusBadge status={stream.status} />
       </div>
       <div className="grid grid-cols-2 gap-3 text-xs">
         <div>
@@ -44,16 +39,23 @@ export function StreamCard({ stream }: { stream: StreamView }) {
         </div>
         <div>
           <p className="text-neutral-500">Withdrawable</p>
-          <p className="text-neutral-100">{formatAmount(stream.withdrawable)}</p>
+          <p className="text-neutral-100">{formatTokenAmount(stream.withdrawable, stream.token)}</p>
         </div>
         <div>
           <p className="text-neutral-500">Total</p>
-          <p className="text-neutral-100">{formatAmount(stream.totalAmount)}</p>
+          <p className="text-neutral-100">{formatTokenAmount(stream.totalAmount, stream.token)}</p>
         </div>
+        {cliff && (
+          <div className="col-span-2" data-testid="stream-card-cliff">
+            <p className="text-neutral-500">Cliff</p>
+            <p className="text-neutral-100">
+              {cliff.local}{" "}
+              <span className="text-neutral-500">({cliff.countdown})</span>
+            </p>
+          </div>
+        )}
       </div>
-      {(stream.status === "streaming" || stream.status === "pending") && (
-        <p className="mt-3 text-xs text-neutral-500">{timeRemaining(stream.endTime)}</p>
-      )}
+      {remaining && <p className="mt-3 text-xs text-neutral-500">{remaining}</p>}
     </Link>
   );
 }

@@ -18,6 +18,15 @@ const DEFAULT_RPC_URLS: Record<string, string> = {
 
 const network = process.env.NEXT_PUBLIC_NETWORK ?? "testnet";
 
+// Mock mode serves fixture data from lib/mock-api.ts instead of calling the
+// backend, for interface work without the API or a database running.
+const mockApi = process.env.NEXT_PUBLIC_MOCK_API === "true";
+
+// Stands in for NEXT_PUBLIC_CONTRACT_ID in mock mode, so the app boots without
+// a deployment. It is a well-formed address that no real contract lives at;
+// on-chain writes still need a real id.
+const MOCK_CONTRACT_ID = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM";
+
 // How long a backend read may run before it is aborted. Long enough that a
 // cold backend or a slow connection still succeeds, short enough that an
 // unreachable one surfaces as an actionable error instead of a skeleton that
@@ -44,33 +53,54 @@ function readApiTimeout(): number {
 export const config = {
   /** Base URL of the tricklepay-backend read API. */
   apiUrl: process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000",
-  /** Stellar network name: testnet or mainnet. */
+  /**
+   * Stellar network name: `"testnet"` or `"mainnet"`.
+   *
+   * Used as the second argument to `txExplorerUrl()` in `lib/explorer.ts`,
+   * which maps it to the correct Stellar Expert path segment. See that file
+   * for the full mapping and instructions for adding a new network.
+   */
   network,
   /** Passphrase for the selected network, used when signing transactions. */
   networkPassphrase: NETWORK_PASSPHRASES[network] ?? NETWORK_PASSPHRASES.testnet,
   /** Soroban RPC endpoint, used to submit signed transactions. */
-  rpcUrl: process.env.NEXT_PUBLIC_RPC_URL ?? DEFAULT_RPC_URLS[network] ?? DEFAULT_RPC_URLS.testnet,
+  rpcUrl:
+    (process.env.NEXT_PUBLIC_RPC_URL && process.env.NEXT_PUBLIC_RPC_URL.trim() !== ""
+      ? process.env.NEXT_PUBLIC_RPC_URL.trim()
+      : undefined) ??
+    DEFAULT_RPC_URLS[network] ??
+    DEFAULT_RPC_URLS.testnet,
   /** Deployed stream contract id (starts with C). */
-  contractId: process.env.NEXT_PUBLIC_CONTRACT_ID ?? "",
+  contractId: process.env.NEXT_PUBLIC_CONTRACT_ID || (mockApi ? MOCK_CONTRACT_ID : ""),
+  /** Serve fixture data instead of calling the backend (NEXT_PUBLIC_MOCK_API=true). */
+  mockApi,
   /**
    * Milliseconds a backend read API request may take before it is aborted.
    * 0 means no timeout. Applies to lib/api.ts only — on-chain transactions
-   * have their own confirmation polling budget in lib/contract.ts.
+   * have their own confirmation polling budget in lib/contract-config.ts.
    */
   apiTimeoutMs: readApiTimeout(),
 };
 
 // Validate contractId at module load so a missing or malformed value surfaces
 // immediately as a clear configuration error rather than an opaque SDK error
-// at the first transaction.
+// at the first transaction. During static prerendering / build, a missing variable
+// is handled safely without throwing so page prerendering succeeds.
 const contractId = config.contractId;
+const isBuildWorker = Boolean(
+  process.env.NEXT_PRIVATE_BUILD_WORKER ||
+  process.env.IS_NEXT_WORKER ||
+  process.env.NEXT_PHASE === "phase-production-build"
+);
+
 if (!contractId) {
-  throw new Error(
-    "Configuration error: NEXT_PUBLIC_CONTRACT_ID is not set. " +
-    "Add it to your .env file (it starts with C).",
-  );
-}
-if (!StrKey.isValidContract(contractId)) {
+  if (!isBuildWorker) {
+    throw new Error(
+      "Configuration error: NEXT_PUBLIC_CONTRACT_ID is not set. " +
+      "Add it to your .env file (it starts with C).",
+    );
+  }
+} else if (!StrKey.isValidContract(contractId)) {
   throw new Error(
     `Configuration error: NEXT_PUBLIC_CONTRACT_ID "${contractId}" is not a valid Stellar contract address. ` +
     "It must be a 56-character string starting with C.",

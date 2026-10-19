@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
-import { installFreighterStub, TEST_ADDRESS } from "./fixtures/freighter";
+
 import { stubApi, stubChain, streamingStream, TX_HASH, type StreamStore } from "./fixtures/chain";
+import { installFreighterStub, TEST_ADDRESS } from "./fixtures/freighter";
 
 // Cancelling a stream is destructive and irreversible, so StreamActions makes
 // it a two-step action: "Cancel stream" opens an inline confirmation instead

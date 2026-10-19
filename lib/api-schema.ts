@@ -38,13 +38,17 @@ function fail(path: string, expectation: string, value: unknown): never {
   );
 }
 
+// Characters of an unexpected string quoted in an error message: enough to
+// recognise it (e.g. the start of an HTML error page), short enough to read.
+const MAX_DESCRIBED_STRING_LENGTH = 40;
+
 // A short, safe rendering of an unexpected value for the error message. Long
 // strings are truncated so a whole HTML error page cannot end up in the UI.
 function describe(value: unknown): string {
   if (value === null) return "null";
   if (Array.isArray(value)) return "an array";
   if (typeof value === "string") {
-    const shown = value.length > 40 ? `${value.slice(0, 40)}…` : value;
+    const shown = value.length > MAX_DESCRIBED_STRING_LENGTH ? `${value.slice(0, MAX_DESCRIBED_STRING_LENGTH)}…` : value;
     return `the string "${shown}"`;
   }
   if (typeof value === "object") return "an object";

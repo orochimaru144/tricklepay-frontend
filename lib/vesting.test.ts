@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { vestedAmount, vestingRatePerDay, withdrawableAmount } from "@/lib/vesting";
 
 // A 100-token stream (7 decimals) running for 100 seconds, so one second of

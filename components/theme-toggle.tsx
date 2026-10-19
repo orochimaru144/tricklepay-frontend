@@ -1,8 +1,10 @@
 "use client";
 
+import type { JSX } from "react";
+
 import { useTheme } from "@/components/theme-provider";
 
-export function ThemeToggle() {
+export function ThemeToggle(): JSX.Element {
   const { theme, toggleTheme } = useTheme();
   const isLight = theme === "light";
 

@@ -56,7 +56,9 @@ See also [Running locally](#running-locally) for the short version,
   - [Folder Structure and Conventions](#folder-structure-and-conventions)
   - [Module Map](#module-map)
 - [API contract](#api-contract)
+- [Documentation](#documentation)
 - [Related repositories](#related-repositories)
+- [Code of Conduct](#code-of-conduct)
 - [License](#license)
 
 ## Features
@@ -69,16 +71,21 @@ See also [Running locally](#running-locally) for the short version,
   every second client-side, using the same linear vesting math as the contract,
   so it climbs in real time without polling.
 - **Create** a stream with a recipient, token, amount, time window, and optional
-  cliff.
+  cliff. The schedule can be populated instantly with presets (1 month linear,
+  1 year with 3-month cliff, 4 years with 1-year cliff) or a duration shortcut
+  (e.g. "30 Days") that stays in sync with the end time.
 - **Withdraw** as the recipient and **cancel** as the sender, each built, signed,
   submitted, and confirmed on-chain with step-by-step transaction progress stages (Preparing -> Sign -> Submit -> Confirm).
 - **Duplicate submission protection** — in-flight invocation guards in contract utilities and components prevent double-submitting active transactions.
+- **Status in the tab title** — a stream's detail page puts its status glyph and label at the front of the document title (`● Streaming · Stream #42 — TricklePay`), keeps polling at a slower rate while the tab is in the background, and prefixes `(!)` when the status changed while you were away. See `hooks/use-stream-title.ts` and `lib/document-title.ts`.
 - **Transaction timeout recovery** — explicit recovery UI allows re-checking confirmation by transaction hash if network confirmation times out without re-submitting.
 - **Maximum withdraw amount hint** — accessible hint and quick "Max" action fill the withdrawal input directly with the live vested balance.
 - **Keyboard focus visibility** — every interactive element gets a consistent, high-contrast focus ring when navigated to via keyboard (`:focus-visible` in `app/globals.css`), independent of any per-component focus styling.
 - **Reduced-motion support** — visitors with the OS-level "reduce motion" preference enabled get all animations and transitions (skeleton shimmer, spinners, progress pulses, hover/focus transitions) collapsed to a single frame, app-wide (`prefers-reduced-motion` in `app/globals.css`).
 - **Light theme toggle** — a header button flips the whole app between dark (default) and light, persisted in `localStorage` and applied before first paint to avoid a flash of the wrong theme. See `components/theme-toggle.tsx`, `components/theme-provider.tsx`, and `lib/theme.ts`.
-- **Branded loading indicator** — indeterminate loading states (route transitions, wallet connect) use `components/brand-spinner.tsx`, three bouncing indigo dots echoing the trickle-drop mark in `app/icon.svg`, instead of a generic spinner. Content-shaped loading (stream lists, stream detail) keeps the existing skeletons in `components/skeleton.tsx`.
+- **Freshness indicator** — each dashboard list shows "Updated N seconds/minutes/hours ago" next to its Refresh button, from the timestamp of that list's own last successful fetch (`hooks/use-stream-page.ts`'s `lastUpdated`). It ticks as time passes, updates immediately after any refresh (manual, background, or load-more), and is in a polite live region so the elapsed time is announced to assistive technology without interrupting.
+- **CSV export** — "Export CSV" next to each dashboard list downloads the currently visible streams (respecting the active filter) as a spreadsheet, built client-side with no server call. Amounts and times are written as exact strings (`lib/csv.ts`, `lib/format.ts`, `lib/timezone.ts`), never through `Number()`, so a balance beyond `Number.MAX_SAFE_INTEGER` is never silently rounded.
+- **Branded loading indicator** — indeterminate loading states (route transitions, wallet connect) use `components/brand-spinner.tsx`, three bouncing indigo dots echoing the trickle-drop mark in `app/icon.svg`, instead of a generic spinner. Content-shaped loading (stream lists, stream detail) keeps the existing skeletons in `components/skeleton.tsx`. Every view renders either one through the shared `components/loading-state.tsx`, so loading is announced to screen readers the same way everywhere.
 
 ## Stack
 
@@ -94,6 +101,8 @@ TricklePay is designed for modern desktop browsers with the [Freighter](https://
 - **Microsoft Edge** (Chromium-based)
 
 Mobile browsers and browsers without extension support can view public stream information but require a supported desktop browser to sign and execute transactions.
+
+On the disconnected dashboard, a note explaining this is shown only when the visitor's browser isn't one of the supported desktop browsers above (`components/browser-support-note.tsx`, decided by `shouldShowBrowserSupportNote` in `lib/browser-support.ts`). It stays hidden on a supported browser, and until the browser is known during the first render, so it never flashes for the common case.
 
 ## Wallet Requirement
 
@@ -117,7 +126,7 @@ A funded account is required to create a stream. Fund your testnet account using
 
 ### Prerequisites
 
-- **Node.js**: `v20.0.0` or higher (Node 20+ LTS). Next.js 15, React 19, and Tailwind CSS v4 build tooling require Node 20+ runtime features and module resolution; older Node versions will encounter errors during package installation or compilation.
+- **Node.js**: `v20.0.0` or higher (Node 20+ LTS). Next.js 15, React 19, and Tailwind CSS v4 build tooling require Node 20+ runtime features and module resolution; older Node versions will encounter errors during package installation or compilation. An `.nvmrc` file pins the target major — run `nvm use` to switch automatically if you use [nvm](https://github.com/nvm-sh/nvm).
 - **npm**: `v10.0.0` or higher.
 - **Freighter Extension**: Installed in your browser (see [Wallet Requirement](#wallet-requirement)).
 - **Backend API**: A running instance of `tricklepay-backend`.
@@ -191,7 +200,9 @@ what it deliberately does not.
 
 `NEXT_PUBLIC_CONTRACT_ID` is validated as the app boots, so a missing or
 malformed value stops it with a configuration error instead of failing at the
-first transaction.
+first transaction. `npm run build` fails the same way unless
+`NEXT_PUBLIC_MOCK_API=true`, because the id is inlined into the bundle at build
+time.
 
 ### Full local setup guide
 
@@ -212,6 +223,13 @@ Configuration comes from `NEXT_PUBLIC_*` variables; see `.env.example`, and
 [docs/local-setup.md](docs/local-setup.md#4-fill-in-each-variable) for where
 each value comes from.
 
+> [!IMPORTANT]
+> Next.js inlines public `NEXT_PUBLIC_*` configuration into the client bundle
+> at build time. Changing an environment value without rebuilding leaves the
+> app using the value from the previous build. Run `npm run build` after
+> changing a value for a production deployment; restarting the server alone
+> does not update the bundle.
+
 | Variable | Description | Required | Default |
 | --- | --- | --- | --- |
 | `NEXT_PUBLIC_CONTRACT_ID` | Deployed stream contract ID (starts with `C`). | Yes | *(None)* |
@@ -219,6 +237,7 @@ each value comes from.
 | `NEXT_PUBLIC_NETWORK` | Stellar network (`testnet` or `mainnet`). | No | `testnet` |
 | `NEXT_PUBLIC_RPC_URL` | Soroban RPC endpoint for submitting transactions. | No | `https://soroban-testnet.stellar.org` |
 | `NEXT_PUBLIC_API_TIMEOUT_MS` | Milliseconds a backend read may take before it is aborted. `0` disables the timeout. | No | `10000` |
+| `NEXT_PUBLIC_APP_URL` | Absolute base URL of this deployment, used to build canonical and social (Open Graph/Twitter) metadata URLs. | No | *(None)* |
 
 ### Switching Contracts
 
@@ -294,7 +313,7 @@ This warning appears when your connected Freighter wallet is targeting a differe
 Next.js inlines all `NEXT_PUBLIC_*` configuration variables directly into the static client JavaScript bundle at build time. Modifying `.env.local` without running `npm run build` (or restarting `npm run dev`) will cause the client bundle to continue targeting old contract addresses or RPC endpoints. See [Configuration: Switching Contracts](#switching-contracts) and [Troubleshooting: Stale Build](#stale-build-serving-old-contract-id).
 
 ### 6. How does the frontend prevent duplicate submissions and handle timeout errors?
-The client enforces a single in-flight transaction lock in `lib/contract.ts` to prevent duplicate concurrent submissions. If network confirmation exceeds the polling threshold (30 seconds), the client raises a `TransactionTimeoutError` preserving the submitted transaction hash, allowing users to safely re-check confirmation status without risking a duplicate transaction. See [Features](#features) and [Transaction lifecycle](docs/api-contract.md#transaction-lifecycle).
+The client enforces a single in-flight transaction lock in `lib/contract.ts` to prevent duplicate concurrent submissions. If network confirmation exceeds the polling threshold (30 seconds), the client raises a `TransactionTimeoutError` preserving the submitted transaction hash, allowing users to safely re-check confirmation status without risking a duplicate transaction. See [Features](#features), [Transaction lifecycle](docs/api-contract.md#transaction-lifecycle), and [docs/timeout-recovery.md](docs/timeout-recovery.md) for the full recovery flow.
 
 ## Styling Approach
 
@@ -352,21 +371,36 @@ components/
   theme-provider.tsx    app-wide light/dark theme state via context
   theme-toggle.tsx      header button that flips the theme
   brand-spinner.tsx     branded loading indicator (bouncing dots)
+  loading-state.tsx     shared loading state every data view renders
   wallet-provider.tsx   app-wide Freighter connection state via context
   wallet-button.tsx     connect / address / network state
   stream-card.tsx       stream summary card
   stream-list.tsx       grid of cards with an empty state
-  create-form.tsx       new-stream form
-  stream-actions.tsx    withdraw and cancel buttons
+  create-form.tsx       new-stream flow: form, then review step
+  create-stream-fields.tsx new-stream form inputs and live previews
+  stream-actions.tsx    withdraw and cancel actions for a stream
+  withdraw-panel.tsx    recipient's withdrawal amount and button
+  cancel-stream-control.tsx sender's two-step cancel
+  timeout-recovery-alert.tsx re-check a transaction whose confirmation timed out
   transaction-progress.tsx transaction progress stage indicator
 hooks/
   use-accrual.ts        per-second vested/withdrawable recomputation
+  use-create-stream-form.ts create-form state, validation, and transactions
+  use-stream-actions.ts withdraw/cancel state and transactions
 lib/
   config.ts             client configuration
   api.ts                backend API client
   contract.ts           build, sign, submit, confirm contract calls with stage tracking
   vesting.ts            linear vesting math, mirroring the contract
-  format.ts             amount and address formatting
+  format.ts             amount, address and time-span formatting
+  schedule.ts           start/end/cliff/remaining text shared by every view
+  csv.ts                builds the dashboard's CSV export (pure, no DOM)
+  csv-download.ts       triggers the browser download for that CSV
+  create-stream-validation.ts create-form field validation rules
+  duration.ts           the create-form's duration shortcut: validation + calendar arithmetic
+  schedule-presets.ts   named schedule presets (1 month linear, 1 year cliff, etc.)
+  create-form-draft.ts  create-form draft persistence
+  stream-actions.ts     who may cancel, and why withdrawal is blocked
   theme.ts              pure light/dark theme resolution logic
 types/
   stream.ts             API response types
@@ -392,11 +426,31 @@ invoked directly (`lib/contract.ts`). Request/response shapes, amount and
 time encoding, the write transaction lifecycle, and the on-chain error-code
 mapping are all documented in [docs/api-contract.md](docs/api-contract.md).
 
+## Documentation
+
+The `docs/` directory holds reference documentation beyond what fits here —
+see [docs/README.md](docs/README.md) for an index of what's there and a
+one-line description of each document.
+
+Conventions for writing components and hooks are documented for AI assistants
+and new contributors in `.kiro/steering/`:
+[`component-conventions.md`](.kiro/steering/component-conventions.md) and
+[`hook-conventions.md`](.kiro/steering/hook-conventions.md).
+
+See [CHANGELOG.md](CHANGELOG.md) for a record of what changed between
+versions of the client.
+
 ## Related repositories
 
 - **tricklepay-contracts** — the Soroban streaming contract.
 - **tricklepay-backend** — indexer and read API this client consumes.
 - **tricklepay-docs** — architecture, security model, and contributor guides.
+
+## Code of Conduct
+
+Everyone taking part in this project is expected to follow the
+[Code of Conduct](CODE_OF_CONDUCT.md), the same Contributor Covenant the
+contract and backend repositories use.
 
 ## License
 

@@ -1,13 +1,13 @@
-import { BrandSpinner } from "@/components/brand-spinner";
+import type { JSX } from "react";
+
+import { LoadingState } from "@/components/loading-state";
 
 // Next.js renders this automatically while a route segment is loading (e.g.
-// a slow initial chunk load), on top of whichever page-level skeleton (see
-// components/skeleton.tsx) that route also renders once its own data starts
-// fetching.
-export default function Loading() {
+// a slow initial chunk load), before the page's own data-shaped loading state.
+export default function Loading(): JSX.Element {
   return (
-    <main className="flex min-h-[50vh] items-center justify-center">
-      <BrandSpinner label="Loading TricklePay" size="lg" />
+    <main id="main-content">
+      <LoadingState variant="spinner" />
     </main>
   );
 }

@@ -1,20 +1,26 @@
+import type { JSX } from "react";
+
 // Skeleton shimmer primitives and composed page-level skeletons.
 // Every skeleton is sized to match its real counterpart so that no layout shift
 // occurs when data arrives. Dimensions are taken directly from the components
-// they stand in for.
+// they stand in for. Skeletons are purely visual: views render them through
+// LoadingState (components/loading-state.tsx), which owns the announcement.
 
 // ---------------------------------------------------------------------------
 // Base primitive
 // ---------------------------------------------------------------------------
 
+export interface SkeletonProps {
+  /** Tailwind classes that control the block's width, height, and spacing. */
+  className?: string;
+}
+
 /**
  * A single shimmering block. Use `className` to set width, height, and any
  * extra spacing. The pulse animation is applied here so every derived skeleton
  * inherits it without repetition.
- * 
- * @param className - Optional CSS classes to control size and spacing. Defaults to empty string.
  */
-export function Skeleton({ className = "" }: { className?: string }) {
+export function Skeleton({ className = "" }: SkeletonProps): JSX.Element {
   return (
     <div
       aria-hidden="true"
@@ -30,10 +36,10 @@ export function Skeleton({ className = "" }: { className?: string }) {
 //   - 2×2 grid: From / To / Withdrawable / Total
 //   - time-remaining line at the bottom
 // ---------------------------------------------------------------------------
-export function StreamCardSkeleton() {
+export function StreamCardSkeleton(): JSX.Element {
   return (
     <div
-      aria-label="Loading stream"
+      aria-hidden="true"
       className="block rounded-lg border border-neutral-800 bg-neutral-950 p-4"
     >
       {/* Header: mono id + status badge */}
@@ -72,12 +78,15 @@ export function StreamCardSkeleton() {
   );
 }
 
+export interface StreamListSkeletonProps {
+  /** Number of card skeletons to render. */
+  count?: number;
+}
+
 /**
  * A grid of N card skeletons matching StreamList's grid layout.
- * 
- * @param count - Number of skeleton cards to render. Defaults to 4.
  */
-export function StreamListSkeleton({ count = 4 }: { count?: number }) {
+export function StreamListSkeleton({ count = 4 }: StreamListSkeletonProps): JSX.Element {
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       {Array.from({ length: count }, (_, i) => (
@@ -89,16 +98,16 @@ export function StreamListSkeleton({ count = 4 }: { count?: number }) {
 
 // ---------------------------------------------------------------------------
 // StreamDetail skeleton
-// Mirrors StreamDetailPage / StreamDetail in app/streams/[id]/page.tsx:
+// Mirrors StreamDetailPage / StreamDetail in components/stream-detail.tsx:
 //   - back link
 //   - heading row (Stream #id + status badge)
 //   - large withdrawal box (label, amount, sub-line, progress bar)
 //   - 7-field dl grid (From, To, Token, Withdrawn, Start, End, Cliff)
 //   - actions area (one or two buttons)
 // ---------------------------------------------------------------------------
-export function StreamDetailSkeleton() {
+export function StreamDetailSkeleton(): JSX.Element {
   return (
-    <main className="mx-auto max-w-2xl px-6 py-10" aria-label="Loading stream details">
+    <div aria-hidden="true">
       {/* Back link */}
       <Skeleton className="h-3 w-10" />
 
@@ -136,6 +145,6 @@ export function StreamDetailSkeleton() {
         <Skeleton className="h-9 w-24 rounded" />
         <Skeleton className="h-9 w-28 rounded" />
       </div>
-    </main>
+    </div>
   );
 }

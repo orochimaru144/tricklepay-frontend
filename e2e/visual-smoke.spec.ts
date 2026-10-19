@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
-import { installFreighterStub, TEST_ADDRESS } from "./fixtures/freighter";
+
 import { stubApi, stubChain, type StreamStore } from "./fixtures/chain";
+import { installFreighterStub, TEST_ADDRESS } from "./fixtures/freighter";
 
 test.describe("Visual Regression Smoke Tests", () => {
   test.beforeEach(async ({ page }) => {

@@ -1,4 +1,6 @@
-export function SkipLink() {
+import type { JSX } from "react";
+
+export function SkipLink(): JSX.Element {
   return (
     <a
       href="#main-content"

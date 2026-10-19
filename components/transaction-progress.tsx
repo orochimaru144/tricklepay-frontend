@@ -1,6 +1,9 @@
 "use client";
 
-import { TX_STAGES, TX_STAGE_LABELS, type TxStage } from "@/lib/contract";
+import type { JSX } from "react";
+
+import { TX_STAGES, TX_STAGE_LABELS } from "@/lib/contract-messages";
+import type { TxStage } from "@/types/contract";
 
 interface Props {
   /** Current transaction stage, or null when no transaction is in progress. */
@@ -12,7 +15,7 @@ interface Props {
  * (Preparing -> Signing -> Submitting -> Confirming). Shows the current stage
  * with visual progress indicators. When stage is null, renders nothing.
  */
-export function TransactionProgress({ stage }: Props) {
+export function TransactionProgress({ stage }: Props): JSX.Element | null {
   if (!stage) return null;
 
   const currentIdx = TX_STAGES.findIndex((s) => s.id === stage);

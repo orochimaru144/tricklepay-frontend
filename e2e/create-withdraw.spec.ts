@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
-import { installFreighterStub, TEST_ADDRESS } from "./fixtures/freighter";
+
+import { truncateAddress } from "@/lib/format";
+
 import {
   TOKEN_ID,
   TX_HASH,
@@ -8,6 +10,7 @@ import {
   streamingStream,
   type StreamStore,
 } from "./fixtures/chain";
+import { installFreighterStub, TEST_ADDRESS } from "./fixtures/freighter";
 
 // The create -> withdraw happy path, end to end through the real UI against a
 // faked wallet and chain. See e2e/README.md for the boundaries of this test.
@@ -58,13 +61,19 @@ test.describe("create then withdraw", () => {
 
     const review = page.getByRole("region", { name: "Review stream" });
     await expect(review).toBeVisible();
-    await expect(review).toContainText(truncate(TEST_ADDRESS));
-    await expect(review).toContainText(truncate(TOKEN_ID));
+    await expect(review).toContainText(truncateAddress(TEST_ADDRESS));
+    await expect(review).toContainText(truncateAddress(TOKEN_ID));
     await expect(review).toContainText("100");
 
-    // Reviewing signs nothing: no simulation or submission has happened yet.
-    expect(chain.methods).not.toContain("simulateTransaction");
+    // Reviewing signs and submits nothing. The fee estimate and balance read do
+    // run read-only simulations here, but no transaction leaves the app until
+    // the user confirms.
     expect(chain.sendCount).toBe(0);
+    expect(
+      await page.evaluate(
+        () => (window as unknown as { __signedTransactions: string[] }).__signedTransactions.length,
+      ),
+    ).toBe(0);
 
     // Back returns to the form without losing any entered value.
     await review.getByRole("button", { name: "Back to edit" }).click();
@@ -172,9 +181,4 @@ function toLocalInput(date: Date): string {
     `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
     `T${pad(date.getHours())}:${pad(date.getMinutes())}`
   );
-}
-
-// Same truncation the review applies to long Stellar addresses.
-function truncate(address: string): string {
-  return `${address.slice(0, 4)}...${address.slice(-4)}`;
 }
