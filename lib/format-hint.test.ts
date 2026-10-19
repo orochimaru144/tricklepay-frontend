@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { formatMaxWithdrawHint } from "@/lib/format";
 
 describe("formatMaxWithdrawHint", () => {

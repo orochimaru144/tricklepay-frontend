@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isSupportedBrowser, SUPPORTED_DESKTOP_BROWSERS } from "./browser-support";
+
+import {
+  isSupportedBrowser,
+  shouldShowBrowserSupportNote,
+  SUPPORTED_DESKTOP_BROWSERS,
+} from "./browser-support";
 
 describe("browser support helper", () => {
   it("lists supported desktop browsers", () => {
@@ -30,5 +35,32 @@ describe("browser support helper", () => {
 
     expect(isSupportedBrowser(iphoneUA)).toBe(false);
     expect(isSupportedBrowser(androidUA)).toBe(false);
+  });
+});
+
+describe("shouldShowBrowserSupportNote", () => {
+  const chromeUA =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+  const iphoneUA =
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1";
+  const desktopSafariUA =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15";
+
+  it("shows the note for a mobile browser", () => {
+    expect(shouldShowBrowserSupportNote(iphoneUA)).toBe(true);
+  });
+
+  it("shows the note for a desktop browser the extension doesn't run in", () => {
+    expect(shouldShowBrowserSupportNote(desktopSafariUA)).toBe(true);
+  });
+
+  it("hides the note for a supported desktop browser", () => {
+    expect(shouldShowBrowserSupportNote(chromeUA)).toBe(false);
+  });
+
+  it("hides the note while the user agent isn't known yet", () => {
+    // Server render / first client render: hidden, so supported browsers never
+    // see it flash and server and client markup match on hydration.
+    expect(shouldShowBrowserSupportNote(null)).toBe(false);
   });
 });

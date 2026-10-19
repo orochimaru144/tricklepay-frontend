@@ -1,12 +1,27 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+
 import { isAbortError, listStreams, type ListStreamsParams } from "@/lib/api";
 import type { StreamStatus, StreamView } from "@/types/stream";
 
 // Rows per request. Kept under the backend's 50-row default so a large account
 // arrives in visible increments instead of one long stall.
 export const PAGE_SIZE = 25;
+
+// How often the dashboard lists refetch in the background so counterparty
+// changes show up without a reload, without polling the backend too hard.
+const LIST_REFRESH_INTERVAL_MS = 15_000;
+
+// Most list-fetch failures are a single transient blip (a dropped connection,
+// a momentary 5xx) that a second attempt clears on its own. One silent retry
+// absorbs that case before bothering the user with an error to act on.
+const FIRST_PAGE_MAX_ATTEMPTS = 2;
+const FIRST_PAGE_RETRY_DELAY_MS = 500;
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export type StreamRole = "sender" | "recipient";
 
@@ -19,17 +34,25 @@ export interface StreamPage {
   hasMore: boolean;
   loadMore: () => void;
   refresh: () => void;
+  /**
+   * Epoch milliseconds of the most recent successful fetch (first page,
+   * background refresh, or load-more), or `null` before the first one
+   * completes. Not reset on a failed refresh — a failure means the data on
+   * screen is stale, which is exactly when its last-known age matters most.
+   */
+  lastUpdated: number | null;
 }
 
 function pageQuery(
   role: StreamRole,
   address: string,
   offset: number,
-  status?: StreamStatus | "all",
+  status: StreamStatus | "all" | undefined,
+  pageSize: number,
 ): ListStreamsParams {
   const party: ListStreamsParams =
     role === "sender" ? { sender: address } : { recipient: address };
-  return { ...party, limit: PAGE_SIZE, offset, status };
+  return { ...party, limit: pageSize, offset, status };
 }
 
 /**
@@ -45,11 +68,14 @@ function pageQuery(
  * 
  * Error state is set when a request fails due to a network or API issue, but not
  * when a request is cancelled (e.g., when switching accounts or leaving the page).
+ * The first page load retries once, silently, before surfacing an error — most
+ * failures are a transient blip that a second attempt clears on its own.
  * 
  * @param role - Whether to fetch streams where the address is "sender" or "recipient"
  * @param address - The wallet address to fetch streams for, or null if no wallet connected
  * @param status - Filter streams by status, or "all" to fetch streams of any status
- * 
+ * @param pageSize - Rows requested per page; defaults to PAGE_SIZE
+ *
  * @returns {StreamPage} An object containing:
  *   - streams: the list of streams loaded so far
  *   - total: total number of streams matching the query
@@ -59,11 +85,14 @@ function pageQuery(
  *   - hasMore: true if there are more streams to load
  *   - loadMore: function to fetch the next page
  *   - refresh: function to reload from page 0
+ *   - lastUpdated: epoch ms of the most recent successful fetch, or null
+ *     before the first one completes
  */
 export function useStreamPage(
   role: StreamRole,
   address: string | null,
   status: StreamStatus | "all" = "all",
+  pageSize: number = PAGE_SIZE,
 ): StreamPage {
   const [streams, setStreams] = useState<StreamView[]>([]);
   const [total, setTotal] = useState(0);
@@ -74,6 +103,7 @@ export function useStreamPage(
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
 
   // Bumped whenever the query changes. A request compares the generation it
   // started under against the current one before writing, so a slow page cannot
@@ -117,25 +147,40 @@ export function useStreamPage(
     setError(null);
     if (!address) return;
 
-    const controller = startRequest();
     setLoading(true);
-    listStreams(pageQuery(role, address, 0, status), { signal: controller.signal })
-      .then((page) => {
-        if (generation.current !== gen) return;
-        setStreams(page.streams);
-        setTotal(page.total);
-        setFetched(page.streams.length);
-      })
-      .catch((err: unknown) => {
-        // A cancelled request is an expected outcome, not a failure to report.
-        if (isAbortError(err) || generation.current !== gen) return;
-        setError(err instanceof Error ? err.message : "Failed to load streams");
-      })
-      .finally(() => {
-        endRequest(controller);
-        if (generation.current === gen) setLoading(false);
-      });
-  }, [role, address, status, abortInFlight, startRequest, endRequest]);
+
+    const run = async () => {
+      for (let attempt = 1; attempt <= FIRST_PAGE_MAX_ATTEMPTS; attempt += 1) {
+        const controller = startRequest();
+        try {
+          const page = await listStreams(pageQuery(role, address, 0, status, pageSize), {
+            signal: controller.signal,
+          });
+          endRequest(controller);
+          if (generation.current !== gen) return;
+          setStreams(page.streams);
+          setTotal(page.total);
+          setFetched(page.streams.length);
+          setLastUpdated(Date.now());
+          return;
+        } catch (err) {
+          endRequest(controller);
+          // A cancelled request is an expected outcome, not a failure to report.
+          if (isAbortError(err) || generation.current !== gen) return;
+          if (attempt === FIRST_PAGE_MAX_ATTEMPTS) {
+            setError(err instanceof Error ? err.message : "Failed to load streams");
+            return;
+          }
+          await wait(FIRST_PAGE_RETRY_DELAY_MS);
+          if (generation.current !== gen) return;
+        }
+      }
+    };
+
+    run().finally(() => {
+      if (generation.current === gen) setLoading(false);
+    });
+  }, [role, address, status, pageSize, abortInFlight, startRequest, endRequest]);
 
   useEffect(() => {
     loadFirstPage();
@@ -152,12 +197,13 @@ export function useStreamPage(
     if (!address || (typeof document !== "undefined" && document.visibilityState === "hidden")) return;
     const gen = generation.current;
     const controller = startRequest();
-    listStreams(pageQuery(role, address, 0, status), { signal: controller.signal })
+    listStreams(pageQuery(role, address, 0, status, pageSize), { signal: controller.signal })
       .then((page) => {
         if (generation.current !== gen) return;
         setStreams(page.streams);
         setTotal(page.total);
         setFetched(page.streams.length);
+        setLastUpdated(Date.now());
       })
       .catch(() => {
         // Background refresh failure, or cancellation: retain existing on-screen rows
@@ -165,7 +211,7 @@ export function useStreamPage(
       .finally(() => {
         endRequest(controller);
       });
-  }, [role, address, status, startRequest, endRequest]);
+  }, [role, address, status, pageSize, startRequest, endRequest]);
 
   // Periodic and window-focus auto-refresh to reflect counterparty actions
   useEffect(() => {
@@ -182,7 +228,7 @@ export function useStreamPage(
 
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibilityChange);
-    const interval = setInterval(silentRefresh, 15000);
+    const interval = setInterval(silentRefresh, LIST_REFRESH_INTERVAL_MS);
 
     return () => {
       window.removeEventListener("focus", onFocus);
@@ -198,7 +244,7 @@ export function useStreamPage(
     setLoadingMore(true);
     setError(null);
 
-    listStreams(pageQuery(role, address, fetched, status), { signal: controller.signal })
+    listStreams(pageQuery(role, address, fetched, status, pageSize), { signal: controller.signal })
       .then((page) => {
         if (generation.current !== gen) return;
         // A stream created since the first page shifts every later row by one,
@@ -212,6 +258,7 @@ export function useStreamPage(
         // An empty page means the result set shrank between requests; trust the
         // rows in hand over the reported total so the button does not stick.
         setTotal(page.streams.length === 0 ? fetched : page.total);
+        setLastUpdated(Date.now());
       })
       .catch((err: unknown) => {
         if (isAbortError(err) || generation.current !== gen) return;
@@ -229,9 +276,10 @@ export function useStreamPage(
     loading,
     loadingMore,
     status,
+    pageSize,
     startRequest,
     endRequest,
   ]);
 
-  return { streams, total, loading, loadingMore, error, hasMore, loadMore, refresh };
+  return { streams, total, loading, loadingMore, error, hasMore, loadMore, refresh, lastUpdated };
 }

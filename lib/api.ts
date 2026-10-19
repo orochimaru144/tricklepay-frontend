@@ -2,12 +2,44 @@
 // All requests are routed to the base URL provided by `config.apiUrl`.
 // Connection issues, timeouts, and malformed responses are surfaced as
 // rejected Promises, expecting callers to handle and display those errors.
-import { config } from "@/lib/config";
+//
+// # Balance accuracy vs. load: why balances are interpolated locally
+//
+// Stream balances are not polled from the backend on a timer. Instead, the
+// client fetches authoritative stream data once and then advances the displayed
+// balance locally between fetches. This is a deliberate trade-off between
+// accuracy and load:
+//
+// - Accuracy: a polling loop would need to run on the order of once per
+//   second to keep the displayed balance visually current, because streams
+//   accrue continuously. That is one request per stream per second for every
+//   open tab, which multiplies into a load spike that grows with the number of
+//   viewers and the number of streams they are watching.
+// - Load: between fetches the client interpolates the balance from the last
+//   authoritative snapshot using the stream's rate and the elapsed time,
+//   so the number keeps moving without any additional requests.
+//
+// Authoritative data is fetched on demand, not on a polling interval:
+// - when a stream is first opened or its view is mounted,
+// - when the user explicitly refreshes, and
+// - when a mutation (create/update/cancel) succeeds and the cache is
+//   invalidated.
+// The interval between those fetches is therefore driven by user action and
+// by the cache strategy, not by a fixed timer.
+//
+// The ledger clock is the source of truth. Interpolation is an estimate for
+// display only; the authoritative balance is what the ledger reports at a
+// given ledger time. When the client and the ledger disagree -- a stream was
+// cancelled, a transfer settled, the clock drifted -- the next fetch wins and
+// the interpolated value is discarded. Nothing in this module treats a locally
+// advanced balance as authoritative.
 import {
   ApiResponseError,
   parseStreamListResponse,
   parseStreamView,
 } from "@/lib/api-schema";
+import { config } from "@/lib/config";
+import { mockGetStream, mockListStreams } from "@/lib/mock-api";
 import type { StreamListResponse, StreamStatus, StreamView } from "@/types/stream";
 
 export { ApiResponseError } from "@/lib/api-schema";
@@ -20,6 +52,16 @@ export interface ListStreamsParams {
   status?: StreamStatus | "all";
 }
 
+/** Shared contract for stream reads. Both the real backend client below and
+ * the mock client in `lib/mock-api.ts` satisfy this type, so a signature or
+ * shape change to one becomes a typecheck failure on the other. */
+export interface StreamApiClient {
+  listStreams(
+    params?: ListStreamsParams,
+    options?: RequestOptions,
+  ): Promise<StreamListResponse>;
+  getStream(id: string, options?: RequestOptions): Promise<StreamView | null>;
+}
 /** Per-request options shared by every call in this module. */
 export interface RequestOptions {
   /**
@@ -42,7 +84,7 @@ export interface RequestOptions {
  *
  * An abort is a normal outcome, not a failure: callers use this to swallow it
  * rather than flashing "Failed to load streams" for a request they cancelled
- * themselves. Identified by `name` rather than by `instanceof DOMException`
+ * themselves. Identified by `name` rather than by instanceof DOMException`
  * because Node's undici and jsdom each reject with their own error class.
  */
 export function isAbortError(error: unknown): boolean {
@@ -112,9 +154,22 @@ async function request<T>(
   options: RequestOptions,
   handle: (res: Response) => Promise<T>,
 ): Promise<T> {
+  const callerSignal = options.signal;
+
+  // When caller explicitly provided a cancellation signal and did not specify a timeout override,
+  // pass the caller's signal directly through to fetch so caller retains direct signal reference.
+  if (callerSignal && options.timeoutMs === undefined) {
+    if (callerSignal.aborted) {
+      const error = new Error("The operation was aborted.");
+      error.name = "AbortError";
+      throw error;
+    }
+    const res = await fetch(url, { cache: "no-store", signal: callerSignal });
+    return await handle(res);
+  }
+
   const timeoutMs = options.timeoutMs ?? config.apiTimeoutMs;
   const controller = new AbortController();
-  const callerSignal = options.signal;
   const forwardAbort = () => controller.abort();
 
   if (callerSignal) {
@@ -150,10 +205,16 @@ async function request<T>(
 // through a result set larger than the backend's default limit. Results are not
 // cached so the list reflects the latest indexed state. The payload is checked
 // against the documented shape before it is handed back (see lib/api-schema.ts).
+//
+// This is the authoritative read that feeds the local balance interpolation
+// described at the top of this module: the results are the ledger's view, and
+// anything derived from them between calls is an estimate.
 export async function listStreams(
   params: ListStreamsParams = {},
   options: RequestOptions = {},
 ): Promise<StreamListResponse> {
+  if (config.mockApi) return mockListStreams(params);
+
   const url = new URL("/streams", config.apiUrl);
   if (params.sender) url.searchParams.set("sender", params.sender);
   if (params.recipient) url.searchParams.set("recipient", params.recipient);
@@ -170,10 +231,17 @@ export async function listStreams(
 }
 
 // Fetches a single stream by id, or null if it does not exist.
+//
+// This is the authoritative snapshot used to seed and resync the locally
+// interpolated balance. The ledger clock carried in the response is the
+// source of truth; the client never invents a balance that disagrees with it
+// once a fresh response arrives.
 export async function getStream(
   id: string,
   options: RequestOptions = {},
 ): Promise<StreamView | null> {
+  if (config.mockApi) return mockGetStream(id);
+
   const url = new URL(`/streams/${id}`, config.apiUrl);
 
   return request(url, `stream ${id}`, options, async (res) => {
@@ -184,3 +252,52 @@ export async function getStream(
     return parseStreamView(await readJson(res, `stream ${id}`));
   });
 }
+
+// A health probe that has not answered in this long counts as unreachable.
+// Shorter than the app-wide read timeout: /health does no database work, so a
+// slow answer is itself the signal, and the probe should not linger.
+const HEALTH_CHECK_TIMEOUT_MS = 5_000;
+
+// Liveness probe for the backend (GET /health). Resolves true on a 2xx and false
+// for anything else the backend or network can do wrong — a non-2xx status, a
+// refused connection, a timeout — because the caller only wants "reachable or
+// not". A caller-driven abort is the one exception and still rejects, so a
+// cancelled probe is never mistaken for an outage.
+export async function checkApiHealth(options: RequestOptions = {}): Promise<boolean> {
+  const url = new URL("/health", config.apiUrl);
+  try {
+    return await request(
+      url,
+      "the API health check",
+      { timeoutMs: HEALTH_CHECK_TIMEOUT_MS, ...options },
+      async (res) => res.ok,
+    );
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    return false;
+  }
+}
+
+// How many ledgers the backend's indexer is behind the chain (GET /status), or
+// null when that is not known: the request failed, the body was not what the
+// endpoint documents, or the indexer has not completed its first poll. The
+// figure is advisory, so every failure collapses to "unknown" instead of an
+// error; only a caller-driven abort still rejects.
+export async function getIndexerLag(options: RequestOptions = {}): Promise<number | null> {
+  const url = new URL("/status", config.apiUrl);
+  try {
+    return await request(url, "the indexer status", options, async (res) => {
+      if (!res.ok) return null;
+      const body = await readJson(res, "the indexer status");
+      const lag = (body as { lagLedgers?: unknown } | null)?.lagLedgers;
+      return typeof lag === "number" && Number.isInteger(lag) && lag >= 0 ? lag : null;
+    });
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    return null;
+  }
+}
+
+// Real backend client, typed against the shared contract so a signature drift
+// against the mock in `lib/mock-api.ts` fails the typecheck.
+export const apiClient: StreamApiClient = { listStreams, getStream };

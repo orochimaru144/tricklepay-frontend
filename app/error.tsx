@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
+import { type JSX, useEffect } from "react";
+
+import { pageDocumentTitle } from "@/lib/document-title";
 
 // Next's file-based error boundary: catches any render-time throw in a page
 // or layout beneath this segment that isn't already handled by that page's
@@ -13,13 +15,17 @@ export default function Error({
 }: {
   error: Error & { digest?: string };
   reset: () => void;
-}) {
+}): JSX.Element {
   useEffect(() => {
     // No error-reporting service is wired up yet; the console is the only
     // record of what actually crashed, so log it rather than only showing
     // the generic UI below.
     console.error(error);
   }, [error]);
+
+  useEffect(() => {
+    document.title = pageDocumentTitle("Something went wrong");
+  }, []);
 
   return (
     <main id="main-content" className="mx-auto max-w-2xl px-6 py-16 text-center">
@@ -30,6 +36,7 @@ export default function Error({
       </p>
       <div className="mt-6 flex items-center justify-center gap-3">
         <button
+          type="button"
           onClick={reset}
           className="rounded bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-900"
         >

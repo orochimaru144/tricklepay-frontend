@@ -10,7 +10,7 @@ import { useEffect } from "react";
 export function useFormNavigationWarning(
   shouldWarn: boolean,
   message = "You have unsaved changes. Leaving this page will discard them.",
-) {
+): void {
   useEffect(() => {
     if (!shouldWarn) {
       return;

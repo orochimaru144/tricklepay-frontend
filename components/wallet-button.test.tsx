@@ -10,6 +10,7 @@ vi.mock("@/hooks/use-network-guard", () => ({
 
 import { useWallet } from "@/components/wallet-provider";
 import { useNetworkGuard } from "@/hooks/use-network-guard";
+
 import { WalletButton } from "./wallet-button";
 
 function mockDisconnected() {
@@ -45,7 +46,7 @@ function mockConnected(address: string) {
 }
 
 describe("WalletButton", () => {
-  describe("disconnected state (#136)", () => {
+  describe("disconnected state (#136, #269)", () => {
     it("prompts the user to connect", () => {
       mockDisconnected();
       const el = WalletButton();
@@ -61,12 +62,12 @@ describe("WalletButton", () => {
     });
   });
 
-  describe("connected state (#137)", () => {
+  describe("connected state (#137, #269)", () => {
     it("shows the truncated address", () => {
       const addr = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN7";
       mockConnected(addr);
       const el = WalletButton();
-      expect(JSON.stringify(el)).toContain("GAAA...CCWN7");
+      expect(JSON.stringify(el)).toContain("GAAZ...CWN7");
     });
 
     it("truncates to first 4 and last 4 characters with ellipsis", () => {
@@ -74,7 +75,7 @@ describe("WalletButton", () => {
       mockConnected(addr);
       const el = WalletButton();
       const json = JSON.stringify(el);
-      expect(json).toContain("GBBB...CCWN7");
+      expect(json).toContain("GBBB...CWN7");
       expect(json).not.toContain(addr);
     });
   });

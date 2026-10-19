@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
-import { installFreighterStub, TEST_ADDRESS } from "./fixtures/freighter";
+
 import { TOKEN_ID, stubApi, stubChain, type StreamStore } from "./fixtures/chain";
+import { installFreighterStub, TEST_ADDRESS } from "./fixtures/freighter";
 
 test.describe("Create Stream Form Validation", () => {
   test("shows field validation errors for invalid inputs and prevents review submit", async ({

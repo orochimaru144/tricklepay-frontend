@@ -1,5 +1,7 @@
 "use client";
 
+import type { JSX } from "react";
+
 import { config } from "@/lib/config";
 import { txExplorerUrl } from "@/lib/explorer";
 
@@ -17,7 +19,7 @@ interface Props {
  * the explorer. `role="status"` + `aria-live="polite"` so screen readers
  * announce it without the interruption an alert would cause.
  */
-export function TransactionNotice({ message, hash, onDismiss }: Props) {
+export function TransactionNotice({ message, hash, onDismiss }: Props): JSX.Element {
   return (
     <div
       role="status"

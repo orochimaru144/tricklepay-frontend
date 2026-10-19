@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import type { StreamView } from "@/types/stream";
+
 import { vestedAmount, withdrawableAmount } from "@/lib/vesting";
+import type { StreamView } from "@/types/stream";
 
 // We test the accrual computation logic directly — the same path useAccrual
 // takes — without mounting React. This keeps the suite fast and avoids a

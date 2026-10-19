@@ -1,7 +1,9 @@
 import Link from "next/link";
-import type { StreamView } from "@/types/stream";
+import type { JSX } from "react";
+
 import { StreamCard } from "@/components/stream-card";
 import { StreamTable } from "@/components/stream-table";
+import type { StreamView } from "@/types/stream";
 
 // Switch to the table layout once a section has this many streams.
 // Fewer items are easier to scan as cards; a table is better for large lists.
@@ -18,7 +20,7 @@ export function StreamList({
   streams,
   emptyMessage = "No streams yet.",
   showCreateLink = false,
-}: Props) {
+}: Props): JSX.Element {
   if (streams.length === 0) {
     return (
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">

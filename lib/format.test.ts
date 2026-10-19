@@ -1,9 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import {
   formatAmount,
   formatDuration,
+  formatMaxWithdrawHint,
+  formatTokenAmount,
+  formatTokenRate,
   formatTokenDisplay,
   relativeTime,
+  timeAgo,
   timeRemaining,
   truncateAddress,
 } from "@/lib/format";
@@ -54,6 +59,33 @@ describe("formatAmount", () => {
   });
 });
 
+describe("formatAmount boundaries", () => {
+  it("renders zero as a visible '0', never an empty string", () => {
+    expect(formatAmount("0")).toBe("0");
+    expect(formatAmount("0000000")).toBe("0");
+    expect(formatMaxWithdrawHint("0")).toBe("Maximum withdrawable amount: 0");
+  });
+
+  it("keeps every digit of amounts near the i128 maximum", () => {
+    // i128::MAX, the largest amount the contract can hold.
+    expect(formatAmount("170141183460469231731687303715884105727")).toBe(
+      "17014118346046923173168730371588.4105727",
+    );
+    // A single stroop above a huge whole amount must survive, not round away.
+    expect(formatAmount("100000000000000000000000000000000000001")).toBe(
+      "10000000000000000000000000000000.0000001",
+    );
+    // u64::MAX, past where Number would start dropping digits.
+    expect(formatAmount("18446744073709551615")).toBe("1844674407370.9551615");
+  });
+
+  it("renders huge whole amounts without a decimal point", () => {
+    expect(formatAmount("100000000000000000000000000000000000000")).toBe(
+      "10000000000000000000000000000000",
+    );
+  });
+});
+
 describe("truncateAddress", () => {
   it("keeps the first four and last four characters", () => {
     expect(truncateAddress("GABCDEFGHIJKLMNOPQRSTUVWXYZ234567")).toBe("GABC...4567");
@@ -66,6 +98,25 @@ describe("truncateAddress", () => {
   it("leaves short strings recognisable", () => {
     expect(truncateAddress("GABC1234")).toBe("GABC...1234");
   });
+
+  it("does not alter the case of the characters it keeps", () => {
+    // Truncation must never normalize case: if it did, two addresses that
+    // differ only in case — and are therefore different accounts — could
+    // truncate to the same displayed string.
+    expect(truncateAddress("gabcdefghijklmnopqrstuvwxyz234567")).toBe("gabc...4567");
+    expect(truncateAddress("GaBcDeFgHiJkLmNoPqRsTuVwXyZ234567")).toBe("GaBc...4567");
+  });
+
+  it("handles an empty string without throwing", () => {
+    expect(truncateAddress("")).toBe("...");
+  });
+
+  it("handles a string shorter than the kept edges by overlapping head and tail", () => {
+    // Below 8 characters, the leading 4 and trailing 4 slices overlap — this
+    // documents the current behaviour rather than hiding it.
+    expect(truncateAddress("GAB")).toBe("GAB...GAB");
+    expect(truncateAddress("G")).toBe("G...G");
+  });
 });
 
 describe("formatTokenDisplay", () => {
@@ -77,6 +128,30 @@ describe("formatTokenDisplay", () => {
 
   it("falls back to the truncated address for unknown contracts", () => {
     expect(formatTokenDisplay("CABCDEFGHIJKLMNOPQRSTUVWXYZ234567")).toBe("CABC...4567");
+  });
+});
+
+describe("formatTokenAmount", () => {
+  const USDC_CONTRACT = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+
+  it("appends the symbol for a known token contract", () => {
+    expect(formatTokenAmount("12500000", USDC_CONTRACT)).toBe("1.25 USDC");
+  });
+
+  it("keeps an unknown token amount compact", () => {
+    expect(formatTokenAmount("12500000", "CUNKNOWN")).toBe("1.25");
+  });
+});
+
+describe("formatTokenRate", () => {
+  const USDC_CONTRACT = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+
+  it("uses the symbol in a known-token rate", () => {
+    expect(formatTokenRate("12500000", USDC_CONTRACT)).toBe("1.25 USDC/day");
+  });
+
+  it("keeps an unknown-token rate readable", () => {
+    expect(formatTokenRate("12500000", "CUNKNOWN")).toBe("1.25 tokens/day");
   });
 });
 
@@ -194,5 +269,49 @@ describe("relativeTime", () => {
   it("returns a generic past form for other verbs", () => {
     freeze();
     expect(relativeTime(at(-1), "cliff")).toBe("cliff passed");
+  });
+});
+
+describe("timeAgo", () => {
+  const NOW = Date.UTC(2026, 0, 1, 12, 0, 0);
+
+  it("reads as just now for a few seconds", () => {
+    expect(timeAgo(NOW, NOW)).toBe("just now");
+    expect(timeAgo(NOW - 4_000, NOW)).toBe("just now");
+  });
+
+  it("counts seconds once distinguishable from just now", () => {
+    expect(timeAgo(NOW - 5_000, NOW)).toBe("5 seconds ago");
+    expect(timeAgo(NOW - 12_000, NOW)).toBe("12 seconds ago");
+    expect(timeAgo(NOW - 59_000, NOW)).toBe("59 seconds ago");
+  });
+
+  it("switches to minutes at 60 seconds, singular at exactly one", () => {
+    expect(timeAgo(NOW - 60_000, NOW)).toBe("1 minute ago");
+    expect(timeAgo(NOW - 90_000, NOW)).toBe("1 minute ago");
+    expect(timeAgo(NOW - 2 * 60_000, NOW)).toBe("2 minutes ago");
+    expect(timeAgo(NOW - 59 * 60_000, NOW)).toBe("59 minutes ago");
+  });
+
+  it("switches to hours at 60 minutes, singular at exactly one", () => {
+    expect(timeAgo(NOW - 60 * 60_000, NOW)).toBe("1 hour ago");
+    expect(timeAgo(NOW - 3 * 3600_000, NOW)).toBe("3 hours ago");
+    expect(timeAgo(NOW - 23 * 3600_000, NOW)).toBe("23 hours ago");
+  });
+
+  it("switches to days at 24 hours, singular at exactly one", () => {
+    expect(timeAgo(NOW - 24 * 3600_000, NOW)).toBe("1 day ago");
+    expect(timeAgo(NOW - 5 * 24 * 3600_000, NOW)).toBe("5 days ago");
+  });
+
+  it("never reads as negative when the clock is briefly behind the timestamp", () => {
+    expect(timeAgo(NOW + 2_000, NOW)).toBe("just now");
+  });
+
+  it("defaults to measuring from Date.now() when nowMs is omitted", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    expect(timeAgo(NOW - 12_000)).toBe("12 seconds ago");
+    vi.useRealTimers();
   });
 });

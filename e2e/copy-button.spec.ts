@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+
 import { stubApi, streamingStream, type StreamStore } from "./fixtures/chain";
 
 test.describe("copy button", () => {

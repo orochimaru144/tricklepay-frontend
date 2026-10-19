@@ -1,5 +1,16 @@
 const STROOP_DECIMALS = 7n;
 
+// Characters kept from each end of a truncated address: enough to tell
+// addresses apart at a glance while fitting cards and table cells.
+const ADDRESS_EDGE_LENGTH = 4;
+
+// Unit conversions for the countdowns. Timestamps are Unix seconds; Date works
+// in milliseconds.
+const MS_PER_SECOND = 1000;
+const SECONDS_PER_MINUTE = 60;
+const SECONDS_PER_HOUR = 3600;
+const SECONDS_PER_DAY = 86400;
+
 export interface TokenMetadata {
   name: string;
   symbol: string;
@@ -61,13 +72,34 @@ export function formatAmount(raw: string): string {
 }
 
 /**
+ * Formats an amount with its token symbol when the contract is known. Unknown
+ * contracts keep the compact numeric display so cards and table cells remain
+ * easy to scan.
+ */
+export function formatTokenAmount(raw: string, tokenAddress: string): string {
+  const amount = formatAmount(raw);
+  const metadata = resolveTokenMetadata(tokenAddress);
+  return metadata ? `${amount} ${metadata.symbol}` : amount;
+}
+
+/** Formats a token amount over time, with a symbol whenever it is known. */
+export function formatTokenRate(
+  raw: string,
+  tokenAddress: string,
+  period = "day",
+): string {
+  const metadata = resolveTokenMetadata(tokenAddress);
+  return `${formatAmount(raw)} ${metadata ? metadata.symbol : "tokens"}/${period}`;
+}
+
+/**
  * Truncates a Stellar address to a short display form.
  *
  * @param address - Full Stellar address string
  * @returns Truncated address in the form "ABCD...WXYZ" (first 4 and last 4 characters)
  */
 export function truncateAddress(address: string): string {
-  return `${address.slice(0, 4)}...${address.slice(-4)}`;
+  return `${address.slice(0, ADDRESS_EDGE_LENGTH)}...${address.slice(-ADDRESS_EDGE_LENGTH)}`;
 }
 
 /**
@@ -77,29 +109,37 @@ export function truncateAddress(address: string): string {
  * @returns Localized date and time string (format depends on user's locale)
  */
 export function formatTime(unixSeconds: string): string {
-  return new Date(Number(unixSeconds) * 1000).toLocaleString();
+  return new Date(Number(unixSeconds) * MS_PER_SECOND).toLocaleString();
+}
+
+/**
+ * The one place a span of time is turned into words, so a countdown and a
+ * duration can never phrase the same length differently: days and hours, hours
+ * and minutes, or minutes alone (seconds are dropped), and "under a minute"
+ * below a minute.
+ */
+function formatSpan(totalSeconds: number): string {
+  const days = Math.floor(totalSeconds / SECONDS_PER_DAY);
+  const hours = Math.floor((totalSeconds % SECONDS_PER_DAY) / SECONDS_PER_HOUR);
+  const minutes = Math.floor((totalSeconds % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE);
+
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m`;
+  return "under a minute";
 }
 
 /**
  * Returns a short human description of how long until a stream's end time.
+ * Exactly `relativeTime(endTimeSeconds, "ends")`, so the list views and the
+ * detail page's End countdown always agree.
  *
  * @param endTimeSeconds - Unix timestamp in seconds, as a string
  * @returns Relative time string (e.g., "ends in 2d 3h", "ends in 45m") or
  *   "ended" if the time has passed. Fractional seconds are truncated down.
  */
 export function timeRemaining(endTimeSeconds: string): string {
-  const diffMs = Number(endTimeSeconds) * 1000 - Date.now();
-  if (diffMs <= 0) return "ended";
-
-  const seconds = Math.floor(diffMs / 1000);
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-
-  if (days > 0) return `ends in ${days}d ${hours}h`;
-  if (hours > 0) return `ends in ${hours}h ${minutes}m`;
-  if (minutes > 0) return `ends in ${minutes}m`;
-  return "ends in under a minute";
+  return relativeTime(endTimeSeconds, "ends");
 }
 
 /**
@@ -108,8 +148,10 @@ export function timeRemaining(endTimeSeconds: string): string {
  * @param rawWithdrawable - Withdrawable amount in base units (stroops), as a string
  * @returns Formatted hint message (e.g., "Maximum withdrawable amount: 1.5")
  */
-export function formatMaxWithdrawHint(rawWithdrawable: string): string {
-  const formatted = formatAmount(rawWithdrawable);
+export function formatMaxWithdrawHint(rawWithdrawable: string, tokenAddress?: string): string {
+  const formatted = tokenAddress
+    ? formatTokenAmount(rawWithdrawable, tokenAddress)
+    : formatAmount(rawWithdrawable);
   return `Maximum withdrawable amount: ${formatted}`;
 }
 
@@ -130,11 +172,7 @@ export function formatMaxWithdrawHint(rawWithdrawable: string): string {
  *   relativeTime("1234567890", "cliff")  → "cliff in 45m"
  */
 export function relativeTime(unixSeconds: string, verb: string): string {
-  const diffMs = Number(unixSeconds) * 1000 - Date.now();
-  const seconds = Math.floor(Math.abs(diffMs) / 1000);
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
+  const diffMs = Number(unixSeconds) * MS_PER_SECOND - Date.now();
 
   if (diffMs <= 0) {
     // Build a simple past-tense label.
@@ -143,13 +181,7 @@ export function relativeTime(unixSeconds: string, verb: string): string {
     return `${verb} passed`;
   }
 
-  let span: string;
-  if (days > 0) span = `${days}d ${hours}h`;
-  else if (hours > 0) span = `${hours}h ${minutes}m`;
-  else if (minutes > 0) span = `${minutes}m`;
-  else span = "under a minute";
-
-  return `${verb} in ${span}`;
+  return `${verb} in ${formatSpan(Math.floor(diffMs / MS_PER_SECOND))}`;
 }
 
 /**
@@ -161,13 +193,39 @@ export function relativeTime(unixSeconds: string, verb: string): string {
  */
 export function formatDuration(seconds: bigint): string | null {
   if (seconds <= 0n) return null;
+  return formatSpan(Number(seconds));
+}
 
-  const days = seconds / 86_400n;
-  const hours = (seconds % 86_400n) / 3_600n;
-  const minutes = (seconds % 3_600n) / 60n;
+/**
+ * A short "time ago" label for a past instant, e.g. for "Updated {timeAgo(...)}"
+ * next to a refresh action. Granularity coarsens with distance so the label
+ * stays readable, and never goes negative (a clock briefly behind the
+ * timestamp it is measuring reads as "just now", not "-1 seconds ago").
+ *
+ * @param pastMs - The instant to describe, in epoch milliseconds.
+ * @param nowMs - The instant to measure from. Defaults to `Date.now()`; pass
+ *   it explicitly to keep a caller's own render consistent with a ticking
+ *   clock it already reads from elsewhere (e.g. useNow()).
+ *
+ * @example
+ *   timeAgo(Date.now() - 2_000)       → "just now"
+ *   timeAgo(Date.now() - 12_000)      → "12 seconds ago"
+ *   timeAgo(Date.now() - 90_000)      → "1 minute ago"
+ *   timeAgo(Date.now() - 2 * 3600_000) → "2 hours ago"
+ */
+export function timeAgo(pastMs: number, nowMs: number = Date.now()): string {
+  const seconds = Math.max(0, Math.floor((nowMs - pastMs) / MS_PER_SECOND));
+  const plural = (n: number) => (n === 1 ? "" : "s");
 
-  if (days > 0n) return `${days}d ${hours}h`;
-  if (hours > 0n) return `${hours}h ${minutes}m`;
-  if (minutes > 0n) return `${minutes}m`;
-  return "under a minute";
+  if (seconds < 5) return "just now";
+  if (seconds < SECONDS_PER_MINUTE) return `${seconds} second${plural(seconds)} ago`;
+
+  const minutes = Math.floor(seconds / SECONDS_PER_MINUTE);
+  if (minutes < 60) return `${minutes} minute${plural(minutes)} ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${plural(hours)} ago`;
+
+  const days = Math.floor(hours / 24);
+  return `${days} day${plural(days)} ago`;
 }

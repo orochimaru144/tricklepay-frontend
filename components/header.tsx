@@ -1,17 +1,21 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { type JSX, useState, useEffect } from "react";
+
+import { ApiStatus } from "@/components/api-status";
+import { NetworkBadge } from "@/components/network-badge";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { WalletButton } from "@/components/wallet-button";
+import { clearReturningFromStream } from "@/lib/scroll";
 
 const NAV_LINKS = [
   { href: "/", label: "Streams" },
   { href: "/create", label: "New stream" },
 ];
 
-export function Header() {
+export function Header(): JSX.Element {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
@@ -25,25 +29,40 @@ export function Header() {
       {/* Desktop / top bar */}
       <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-4">
         {/* Logo — always visible */}
-        <Link href="/" className="text-lg font-semibold">
+        <Link href="/" onClick={clearReturningFromStream} className="text-lg font-semibold">
           TricklePay
         </Link>
 
         {/* Desktop nav links (hidden on mobile) */}
         <nav aria-label="Main navigation" className="hidden items-center gap-6 sm:flex">
-          {NAV_LINKS.filter((l) => l.href !== "/").map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className="text-sm text-neutral-400 hover:text-neutral-100"
-            >
-              {link.label}
-            </Link>
-          ))}
+          {NAV_LINKS.filter((l) => l.href !== "/").map((link) => {
+            const isActive = pathname === link.href;
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                onClick={link.href === "/" ? clearReturningFromStream : undefined}
+                aria-current={isActive ? "page" : undefined}
+                className={`text-sm transition-colors ${
+                  isActive
+                    ? "font-medium text-neutral-100"
+                    : "text-neutral-400 hover:text-neutral-100"
+                }`}
+              >
+                {link.label}
+              </Link>
+            );
+          })}
         </nav>
 
         {/* Right side: theme toggle + wallet + hamburger */}
         <div className="flex items-center gap-3">
+          {/* Network badge is always visible so the active network is never hidden */}
+          <NetworkBadge />
+
+          {/* Whether the backend the lists load from is reachable */}
+          <ApiStatus />
+
           {/* Theme toggle is always visible */}
           <ThemeToggle />
 
@@ -98,20 +117,25 @@ export function Header() {
           className="border-t border-neutral-800 sm:hidden"
         >
           <ul className="mx-auto max-w-4xl space-y-1 px-6 py-3">
-            {NAV_LINKS.map((link) => (
-              <li key={link.href}>
-                <Link
-                  href={link.href}
-                  className={`block rounded px-3 py-2 text-sm transition-colors ${
-                    pathname === link.href
-                      ? "bg-neutral-800 text-neutral-100"
-                      : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-100"
-                  }`}
-                >
-                  {link.label}
-                </Link>
-              </li>
-            ))}
+            {NAV_LINKS.map((link) => {
+              const isActive = pathname === link.href;
+              return (
+                <li key={link.href}>
+                  <Link
+                    href={link.href}
+                    onClick={link.href === "/" ? clearReturningFromStream : undefined}
+                    aria-current={isActive ? "page" : undefined}
+                    className={`block rounded px-3 py-2 text-sm transition-colors ${
+                      isActive
+                        ? "bg-neutral-800 text-neutral-100"
+                        : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-100"
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         </nav>
       )}

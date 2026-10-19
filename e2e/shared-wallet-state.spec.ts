@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
-import { installFreighterStub, TEST_ADDRESS } from "./fixtures/freighter";
+
 import { stubApi, stubChain, streamingStream, type StreamStore } from "./fixtures/chain";
+import { installFreighterStub, TEST_ADDRESS } from "./fixtures/freighter";
 
 // Regression cover for issue #1, "Share one wallet state instead of four".
 //
